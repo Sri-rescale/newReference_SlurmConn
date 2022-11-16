@@ -1,0 +1,126 @@
+RELEASE NOTES FOR SLURM VERSION 23.02
+
+IMPORTANT NOTES:
+If using the slurmdbd (Slurm DataBase Daemon) you must update this first.
+
+NOTE: If using a backup DBD you must start the primary first to do any
+database conversion, the backup will not start until this has happened.
+
+The 23.02 slurmdbd will work with Slurm daemons of version 21.08 and above.
+You will not need to update all clusters at the same time, but it is very
+important to update slurmdbd first and having it running before updating
+any other clusters making use of it.
+
+Slurm can be upgraded from version 21.08 or 22.05 to version 23.02 without loss
+of jobs or other state information. Upgrading directly from an earlier version
+of Slurm will result in loss of state information.
+
+All SPANK plugins must be recompiled when upgrading from any Slurm version
+prior to 23.02.
+
+NOTE: PMIx v1.x is no longer supported.
+
+HIGHLIGHTS
+==========
+ -- Make scontrol reconfigure and sending a SIGHUP to the slurmctld behave the
+    same. If you were using SIGHUP as a 'lighter' scontrol reconfigure to rotate
+    logs please update your scripts to use SIGUSR2 instead.
+ -- burst_buffer/lua - pass the job's UID and GID to slurm_bb_pre_run,
+    slurm_bb_data_in, slurm_bb_post_run, and slurm_bb_data_out in
+    burst_buffer.lua.
+ -- Change cloud nodes to show by default. PrivateData=cloud is no longer
+    needed.
+ -- sreport - Count planned (FKA reserved) time for jobs running in IGNORE_JOBS
+    reservations. Previously was lumped into IDLE time.
+ -- job_container/tmpfs - Support running with an arbitrary list of private
+    mount points (/tmp and /dev/shm are the default, but not required).
+ -- job_container/tmpfs - Set more environment variables in InitScript.
+ -- Make all cgroup directories created by Slurm owned by root. This was the
+    behavior in cgroup/v2 but not in cgroup/v1 where by default the step
+    directories ownership were set to the user and group of the job.
+ -- accounting_storage/mysql - change purge/archive to calculate record ages
+    based on end time, rather than start or submission times.
+ -- job_submit/lua - add support for log_user() from slurm_job_modify().
+ -- Run the following scripts in slurmscriptd instead of slurmctld:
+    ResumeProgram, ResumeFailProgram, SuspendProgram, ResvProlog, ResvEpilog,
+    and RebootProgram (only with SlurmctldParameters=reboot_from_controller).
+ -- Only permit changing log levels with 'srun --slurmd-debug' by root
+    or SlurmUser.
+ -- slurmctld will fatal() when reconfiguring the job_submit plugin fails.
+ -- Add PowerDownOnIdle partition option to power down nodes after nodes become
+    idle.
+ -- Add "[jobid.stepid]" prefix from slurmstepd and "slurmscriptd" prefix from
+    slurmcriptd to Syslog logging. Previously was only happening when logging
+    to a file.
+
+CONFIGURATION FILE CHANGES (see appropriate man page for details)
+=====================================================================
+ -- job_container.conf - Added "Dirs" option to list desired private mount
+    points.
+ -- node_features plugins - invalid users specified for AllowUserBoot will now
+    result in fatal() rather than just an error.
+ -- Deprecate AllowedKmemSpace, ConstrainKmemSpace, MaxKmemPercent, and
+    MinKmemSpace.
+ -- Allow jobs to queue even if the user is not in AllowGroups when
+    EnforcePartLimits=no is set. This ensures consistency for all the Partition
+    access controls, and matches the documented behavior for EnforcePartLimits.
+ -- Add InfluxDBTimeout parameter to acct_gather.conf.
+ -- job_container/tmpfs - add support for expanding %h and %n in BasePath.
+ -- slurm.conf - Removed SlurmctldPlugstack option.
+
+COMMAND CHANGES (see man pages for details)
+===========================================
+ -- sacctmgr - no longer force updates to the AdminComment, Comment, or
+    SystemComment to lower-case.
+ -- sinfo - Add -F/--future option to sinfo to display future nodes.
+ -- sacct - Rename 'Reserved' field to 'Planned' to match sreport and the
+    nomenclature of the 'Planned' node.
+ -- scontrol - advanced reservation flag MAINT will no longer replace nodes,
+    similar to STATIC_ALLOC
+ -- sbatch - add parsing for #PBS -d and #PBS -w.
+ -- scontrol show assoc_mgr will show username(uid) instead of uid in
+    QoS section.
+ -- Add strigger --draining and -R/--resume options.
+ -- Change --oversubscribe and --exclusive to be mutually exclusive for job
+    submission. Job submission commands will now fatal if both are set.
+    Previously, these options would override each other, with the last one in
+    the job submission command taking effect.
+ -- scontrol - Requested TRES and allocated TRES will now always be printed when
+    showing jobs, instead of one TRES output that was either the requested or
+    allocated.
+ -- srun --ntasks-per-core now applies to job and step allocations. Now, use of
+    --ntasks-per-core=1 implies --cpu-bind=cores and --ntasks-per-core>1 implies
+    --cpu-bind=threads.
+ -- salloc/sbatch/srun - Check and abort if ntasks-per-core > threads-per-core.
+ -- scontrol - Add ResumeAfter=<secs> option to "scontrol update nodename=".
+ -- Add a new "nodes=" argument to scontrol setdebug to allow the debug level
+    on the slurmd processes to be temporarily altered.
+
+API CHANGES
+===========
+ -- job_container plugins - container_p_stepd_create() function signature
+    replaced uint32_t uid with stepd_step_rec_t* step.
+ -- gres plugins - gres_g_get_devices() function signature replaced pid_t pid
+    with stepd_step_rec_t* step.
+ -- cgroup plugins - task_cgroup_devices_constrain() function signature removed
+    pid_t pid.
+ -- task plugins - replace task_p_pre_set_affinity(), task_p_set_affinity(), and
+    task_p_post_set_affinity() with task_p_pre_launch_priv() like it was back in
+    slurm 20.11.
+ -- Allow for concurrent processing of job_submit_g_submit() and
+    job_submit_g_modify() calls. If your plugin is not capable of concurrent
+    operation you must add additional locking within your plugin.
+ -- Removed return value from slurm_list_append().
+ -- The List and ListIterator types have been removed in favor of list_t and
+    list_itr_t respectively.
+ -- burst buffer plugins - add bb_g_build_het_job_script().
+    bb_g_get_status() - added authenticated UID and GID.
+    bb_g_run_script() - added job_info argument.
+ -- burst_buffer.lua - Pass UID and GID to most hooks. Pass job_info (detailed
+    job information) to many hooks. See etc/burst_buffer.lua.example for a
+    complete list of changes. WARNING: Backwards compatibility is broken for
+    slurm_bb_get_status: UID and GID are passed before the variadic arguments.
+    If UID and GID are not explicitly listed as arguments to
+    slurm_bb_get_status(), then they will be included in the variadic arguments.
+    Backwards compatibility is maintained for all other hooks because the new
+    arguments are passed after the existing arguments.
